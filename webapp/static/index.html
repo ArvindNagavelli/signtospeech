@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Sign to Speech – Reception Mode</title>
+  <style>
+    :root { --pad: 14px; --radius: 14px; }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family: system-ui, Arial, sans-serif; background:#0b0b0b; color:#fff; }
+
+    header { padding: var(--pad); border-bottom: 1px solid #222; }
+    header h1 { margin:0; font-size: 18px; font-weight: 650; }
+    header p { margin:6px 0 0; font-size: 13px; color:#bbb; }
+
+    /* Fill viewport nicely (kiosk feel) */
+    .wrap {
+      height: calc(100vh - 62px); /* header height approx */
+      padding: var(--pad);
+      display: grid;
+      gap: var(--pad);
+    }
+
+    /* Desktop/tablet landscape: video left, panel right */
+    @media (min-width: 900px) {
+      .layout { display:grid; grid-template-columns: 2fr 1fr; gap: var(--pad); height: 100%; }
+      .video-card { height: 100%; }
+      .right-col { height: 100%; display:grid; grid-template-rows: auto 1fr 1fr; gap: var(--pad); }
+    }
+
+    /* Mobile: stack; still keeps message box visible */
+    @media (max-width: 899px) {
+      .layout { display:grid; grid-template-columns: 1fr; gap: var(--pad); height: 100%; }
+      .right-col { display:grid; grid-template-rows: auto auto auto; gap: var(--pad); }
+      .wrap { height: auto; }
+    }
+
+    .card { background:#121212; border:1px solid #222; border-radius: var(--radius); padding: var(--pad); }
+    .video-card { padding: 0; overflow: hidden; border-radius: var(--radius); border:1px solid #222; background:#121212; }
+    .video-card img { width: 100%; height: 100%; object-fit: cover; display:block; }
+
+    .label { font-size: 12px; color:#aaa; margin-bottom: 6px; letter-spacing: 0.04em; text-transform: uppercase; }
+    .status-row { display:flex; justify-content: space-between; gap: 10px; }
+    .big { font-size: 20px; font-weight: 700; }
+    .muted { color:#bbb; font-size: 13px; }
+
+    .conn-dot { display:inline-block; width:10px; height:10px; border-radius: 50%; background: #666; vertical-align: middle; margin-right: 6px; }
+    .pill { display:inline-block; padding: 6px 10px; border:1px solid #2a2a2a; border-radius: 999px; font-size: 12px; color:#ccc; margin-top:8px; }
+
+    /* Draft sentence box */
+    .draft-box {
+      width: 100%;
+      min-height: 110px;
+      max-height: 160px;
+      resize: none;
+      border-radius: 12px;
+      border: 1px solid #2a2a2a;
+      background: #0f0f0f;
+      color: #fff;
+      padding: 12px;
+      font-size: 20px;
+      font-weight: 800;
+      line-height: 1.3;
+      outline: none;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+    }
+
+    /* History box */
+    .history {
+      height: 100%;
+      max-height: 100%;
+      overflow: auto;
+      padding: 10px;
+      border-radius: 12px;
+      border: 1px solid #2a2a2a;
+      background: #0f0f0f;
+    }
+    .history-item {
+      padding: 10px;
+      border-bottom: 1px solid #222;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      font-size: 15px;
+      color: #eaeaea;
+    }
+    .history-item:last-child { border-bottom: none; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Sign to Speech</h1>
+    <p>Reception Mode — sign words to form a message. Sign <b>CONFIRM</b> at the end to submit.</p>
+  </header>
+
+  <div class="wrap">
+    <div class="layout">
+      <!-- LEFT: VIDEO -->
+      <div class="video-card">
+        <img id="video" src="/video" alt="Live camera feed"/>
+      </div>
+
+      <!-- RIGHT: STATUS + DRAFT + HISTORY (always visible) -->
+      <div class="right-col">
+        <div class="card">
+          <div class="label">Live Status</div>
+
+          <div class="muted">
+            <span class="conn-dot" id="connDot"></span>
+            Connection: <span id="conn">Connecting…</span>
+          </div>
+
+          <div style="height:12px;"></div>
+
+          <div class="status-row">
+            <div>
+              <div class="muted">Live word</div>
+              <div class="big" id="liveLabel">—</div>
+            </div>
+            <div style="text-align:right;">
+              <div class="muted">Confidence</div>
+              <div class="big" id="liveConf">—</div>
+            </div>
+          </div>
+
+          <div style="height:12px;"></div>
+
+          <div class="muted">Candidate</div>
+          <div class="big" id="candidate">—</div>
+
+          <div style="height:12px;"></div>
+
+          <div class="muted">Last committed</div>
+          <div class="big" id="lastCommitted">—</div>
+
+          <div class="pill">End message with: CONFIRM</div>
+          <div class="pill">Optional: CLEAR to restart</div>
+        </div>
+
+        <div class="card">
+          <div class="label">Draft Message</div>
+          <textarea id="draftBox" class="draft-box" readonly
+            placeholder="Start signing… (sentence will build here)"></textarea>
+          <div class="muted" style="margin-top:10px;">
+            Tip: show sign, pause, lower hands to commit each word.
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="label">Confirmed History</div>
+          <div id="history" class="history">
+            <div class="muted">No confirmed messages yet.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const liveLabel = document.getElementById("liveLabel");
+    const liveConf = document.getElementById("liveConf");
+    const candidate = document.getElementById("candidate");
+    const lastCommitted = document.getElementById("lastCommitted");
+    const draftBox = document.getElementById("draftBox");
+    const historyEl = document.getElementById("history");
+    const conn = document.getElementById("conn");
+    const connDot = document.getElementById("connDot");
+
+    let lastHistoryJson = "";
+
+    function setConn(state) {
+      if (state === "connected") { conn.textContent = "Connected"; connDot.style.background = "#2ecc71"; }
+      else if (state === "connecting") { conn.textContent = "Connecting…"; connDot.style.background = "#f1c40f"; }
+      else { conn.textContent = "Disconnected"; connDot.style.background = "#e74c3c"; }
+    }
+
+    function renderHistory(items) {
+      if (!items || items.length === 0) {
+        historyEl.innerHTML = '<div class="muted">No confirmed messages yet.</div>';
+        return;
+      }
+      historyEl.innerHTML = items.map((txt, i) => {
+        const safe = (txt ?? "").toString();
+        return `<div class="history-item"><b>#${items.length - i}</b> ${safe}</div>`;
+      }).join("");
+      historyEl.scrollTop = historyEl.scrollHeight;
+    }
+
+    setConn("connecting");
+
+    const wsProto = location.protocol === "https:" ? "wss" : "ws";
+    const ws = new WebSocket(`${wsProto}://${location.host}/ws`);
+
+    ws.onopen = () => setConn("connected");
+
+    ws.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+
+      liveLabel.textContent = data.live_label ?? "—";
+      liveConf.textContent = (data.live_conf ?? "—").toString();
+      candidate.textContent = data.candidate ?? "—";
+      lastCommitted.textContent = data.last_committed ?? "—";
+
+      // Draft (wraps, persists)
+      if (typeof data.draft === "string") {
+        draftBox.value = data.draft;
+        draftBox.scrollTop = draftBox.scrollHeight;
+      }
+
+      // History
+      const histJson = JSON.stringify(data.history ?? []);
+      if (histJson !== lastHistoryJson) {
+        lastHistoryJson = histJson;
+        renderHistory(data.history ?? []);
+      }
+    };
+
+    ws.onclose = () => setConn("disconnected");
+    ws.onerror = () => setConn("disconnected");
+  </script>
+</body>
+</html>
